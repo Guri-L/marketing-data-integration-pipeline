@@ -1,13 +1,15 @@
 # Going live
 
-Nothing in this guide has been executed against real services yet. The steps are ordered so
-each one adds a single unverified component; expect to fix small things at each step.
+The SQL models and quality checks have been run in BigQuery
+([bigquery_validation.md](bigquery_validation.md)). Nothing else in this guide has been executed
+against real services yet. The steps are ordered so each one adds a single unverified component;
+expect to fix small things at each step.
 
 Copy `.env.example` to `.env` first. `.env` is git-ignored.
 
 ## Step 1: synthetic data into BigQuery (no API credentials)
 
-This exercises the BigQuery loader and every SQL model for real.
+This exercises the Python BigQuery loader, which is still untested, and loads the full three months.
 
 ```bash
 pip install -e ".[bigquery]"
@@ -22,6 +24,9 @@ WAREHOUSE=bigquery
 GCP_PROJECT_ID=your-project
 BQ_LOCATION=EU
 ```
+
+`BQ_LOCATION` must match the location of the datasets if they already exist (for example `US`).
+Queries sent to the wrong location fail with a "dataset not found" error.
 
 ```bash
 python -m marketing_pipeline show-sql    # review the DDL first

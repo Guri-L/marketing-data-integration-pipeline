@@ -46,8 +46,9 @@ A plain "latest row per key" dedup would keep those stale rows.
 
 **One SQL dialect.** Models are written in BigQuery Standard SQL and transpiled to DuckDB for
 local runs, rather than maintaining two copies or restricting SQL to a common subset. The
-trade-off: a local pass proves the logic, not that BigQuery accepts every statement. The first
-BigQuery run is the real check for that.
+trade-off: a local pass proves the logic, not that BigQuery accepts every statement. That was
+checked separately by running all models in BigQuery and comparing the results
+([bigquery_validation.md](bigquery_validation.md)).
 
 **Models are plain `SELECT` files.** The runner wraps each one in `CREATE OR REPLACE TABLE` and
 orders them by their `{{ layer.table }}` references, with optional `-- partition_by:` and

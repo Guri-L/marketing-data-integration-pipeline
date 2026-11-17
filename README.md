@@ -14,9 +14,10 @@ pip install -e ".[dev]"
 python -m marketing_pipeline run
 ```
 
-> **Status in one line:** everything runs and is tested locally on synthetic data. The BigQuery
-> backend and the three live API extractors are written but have not been run against real
-> accounts yet. See [What works and what still needs configuration](#what-works-and-what-still-needs-configuration).
+> **Status in one line:** everything runs and is tested locally on synthetic data, and the SQL
+> models and quality checks have been run in BigQuery on a two-week slice with matching results.
+> The Python BigQuery loader and the three live API extractors are written but have not been
+> run against real services yet. See [What works and what still needs configuration](#what-works-and-what-still-needs-configuration).
 
 ## Architecture
 
@@ -64,7 +65,7 @@ The switch between synthetic and live data, and between DuckDB and BigQuery, is 
 only (`PIPELINE_MODE`, `WAREHOUSE`). Extractors and warehouses sit behind small interfaces, so
 the validation, SQL models and quality checks are the same code in every combination.
 
-More detail: [docs/architecture.md](docs/architecture.md) · [docs/data_dictionary.md](docs/data_dictionary.md) · [docs/going_live.md](docs/going_live.md)
+More detail: [docs/architecture.md](docs/architecture.md) · [docs/data_dictionary.md](docs/data_dictionary.md) · [docs/bigquery_validation.md](docs/bigquery_validation.md) · [docs/going_live.md](docs/going_live.md)
 
 ## Quick start
 
@@ -204,28 +205,31 @@ checks run even when one fails, so a single run shows every problem.
 | Failure paths: source outage, schema drift, bad values, unexpected errors | Integration tests |
 | Retry policy, secret masking, config validation | Unit tests |
 | Meta extractor paging, retry and token handling | Unit tests against a fake HTTP session |
-| SQL models and checks parse as BigQuery SQL | Parsed with sqlglot's BigQuery dialect |
+| SQL models and quality checks execute in BigQuery | Run in a real project on a two-week slice, see [docs/bigquery_validation.md](docs/bigquery_validation.md) |
+| BigQuery and DuckDB produce the same results | Row counts and totals of every table match; 3 of 84 derived ratios differ by 0.01 |
 | Lint | `ruff check .` passes |
 
 **Written but not yet run against real services:**
 
 | Area | What is unverified | What it needs |
 | --- | --- | --- |
-| BigQuery backend | Dataset creation, load jobs and the SQL models have never executed in BigQuery. Parsing with sqlglot is not the same as BigQuery accepting the SQL. | A GCP project, `WAREHOUSE=bigquery`, `GCP_PROJECT_ID` |
+| BigQuery loader (Python) | `BigQueryWarehouse` has never run: dataset creation and load jobs through the client library are untested. The BigQuery validation loaded data with SQL instead. The full three-month dataset has not been loaded. | `WAREHOUSE=bigquery`, `GCP_PROJECT_ID`, `BQ_LOCATION`, Application Default Credentials |
 | GA4 extractor | Request building was checked against the installed client library; no report has been fetched. | `GA4_PROPERTY_ID`, Viewer access for the ADC identity |
 | Google Ads extractor | Client construction was checked against the installed library; no query has been run. | Developer token, OAuth client and refresh token, customer id |
 | Meta Ads extractor | Never called the real API. The purchase action type can differ per account. | System-user token with `ads_read`, account id, `META_API_VERSION` |
 | Secret Manager backend | Never called. | Secrets created, `secretAccessor` role |
 
 Step-by-step setup for each of these is in [docs/going_live.md](docs/going_live.md). The first
-step is running the synthetic data into a BigQuery sandbox project, which exercises the loader
-and all SQL without any API credentials.
+step is running the full synthetic dataset into BigQuery with the Python loader, which needs
+Application Default Credentials but no API credentials.
 
 **Known limitations**
 
 - GA4 is joined to ad platforms on `utm_campaign = campaign name`. Renamed campaigns or
   duplicate names break the match; joining on a campaign id passed in the UTM is more robust.
 - One currency is assumed. There is no currency conversion.
+- Money is stored as `FLOAT64`. Totals reconcile to the cent, but a derived ratio that lands
+  exactly on half a cent can round differently between engines. `NUMERIC` would remove this.
 - Models are full refreshes. Fine at this volume; large accounts would need incremental models.
 - There is no scheduler. The CLI is designed to be run by Cloud Run Jobs, Cloud Composer or cron.
 - GA4 `total_users` is stored in staging but not in reporting, because users cannot be summed
