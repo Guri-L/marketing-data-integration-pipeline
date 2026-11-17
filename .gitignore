@@ -1,0 +1,26 @@
+# Credentials - never commit
+.env
+.env.*
+!.env.example
+*service-account*.json
+*credentials*.json
+google-ads.yaml
+*.pem
+*.key
+
+# Local warehouse, landing zone and run artifacts
+*.duckdb
+*.duckdb.wal
+data/landing/
+artifacts/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+build/
+dist/

@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "marketing-pipeline"
+version = "0.1.0"
+description = "End-to-end marketing data integration pipeline: GA4, Google Ads and Meta Ads into BigQuery"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "duckdb>=1.0",
+    "sqlglot>=25.0",
+    "PyYAML>=6.0",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+# Needed only when WAREHOUSE=bigquery
+bigquery = ["google-cloud-bigquery>=3.20"]
+# Needed only when PIPELINE_MODE=live
+live = [
+    "google-analytics-data>=0.18",
+    "google-ads>=25.0",
+    "requests>=2.31",
+    "google-cloud-secret-manager>=2.20",
+]
+dev = ["pytest>=8.0", "ruff>=0.5", "requests>=2.31"]
+
+[project.scripts]
+marketing-pipeline = "marketing_pipeline.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S"]
+ignore = [
+    "S101",  # asserts are fine in tests
+    "S608",  # SQL is built from repo-controlled templates and config, never user input
+    "S311",  # random is used for synthetic data, not cryptography
+]
