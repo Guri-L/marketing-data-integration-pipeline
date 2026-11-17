@@ -1,0 +1,142 @@
+# Data quality checks, run after every transform.
+# severity: error fails the run, warn is reported only.
+# Types: not_null, unique, non_negative, accepted_values, expression,
+#        row_count_min, freshness, sql (custom query returning failed_rows).
+checks:
+  # ---- staging: GA4 ---------------------------------------------------------
+  - name: stg_ga4_not_empty
+    table: staging.stg_ga4__sessions
+    type: row_count_min
+    min: 1
+  - name: stg_ga4_keys_not_null
+    table: staging.stg_ga4__sessions
+    type: not_null
+    columns: [date, source, medium, device_category, sessions]
+  - name: stg_ga4_grain_unique
+    table: staging.stg_ga4__sessions
+    type: unique
+    columns: [date, source, medium, campaign_name, device_category]
+  - name: stg_ga4_metrics_non_negative
+    table: staging.stg_ga4__sessions
+    type: non_negative
+    columns: [sessions, engaged_sessions, transactions, purchase_revenue]
+  - name: stg_ga4_engaged_within_sessions
+    table: staging.stg_ga4__sessions
+    type: expression
+    expression: engaged_sessions <= sessions
+  - name: stg_ga4_device_known
+    table: staging.stg_ga4__sessions
+    type: accepted_values
+    column: device_category
+    values: [mobile, desktop, tablet, smart tv]
+  - name: stg_ga4_fresh
+    table: staging.stg_ga4__sessions
+    type: freshness
+    column: date
+    max_lag_days: 2
+  - name: stg_ga4_channel_classified
+    table: staging.stg_ga4__sessions
+    type: expression
+    expression: channel_group != 'Other'
+    severity: warn
+
+  # ---- staging: Google Ads --------------------------------------------------
+  - name: stg_google_ads_keys_not_null
+    table: staging.stg_google_ads__campaign_daily
+    type: not_null
+    columns: [date, customer_id, campaign_id, campaign_name, impressions, clicks, spend]
+  - name: stg_google_ads_grain_unique
+    table: staging.stg_google_ads__campaign_daily
+    type: unique
+    columns: [date, customer_id, campaign_id]
+  - name: stg_google_ads_metrics_non_negative
+    table: staging.stg_google_ads__campaign_daily
+    type: non_negative
+    columns: [impressions, clicks, spend, conversions, conversion_value]
+  - name: stg_google_ads_clicks_within_impressions
+    table: staging.stg_google_ads__campaign_daily
+    type: expression
+    expression: clicks <= impressions
+  - name: stg_google_ads_fresh
+    table: staging.stg_google_ads__campaign_daily
+    type: freshness
+    column: date
+    max_lag_days: 2
+
+  # ---- staging: Meta Ads ----------------------------------------------------
+  - name: stg_meta_ads_keys_not_null
+    table: staging.stg_meta_ads__campaign_daily
+    type: not_null
+    columns: [date, account_id, campaign_id, campaign_name, impressions, clicks, spend]
+  - name: stg_meta_ads_grain_unique
+    table: staging.stg_meta_ads__campaign_daily
+    type: unique
+    columns: [date, account_id, campaign_id]
+  - name: stg_meta_ads_metrics_non_negative
+    table: staging.stg_meta_ads__campaign_daily
+    type: non_negative
+    columns: [impressions, clicks, spend, conversions, conversion_value]
+  - name: stg_meta_ads_clicks_within_impressions
+    table: staging.stg_meta_ads__campaign_daily
+    type: expression
+    expression: clicks <= impressions
+  - name: stg_meta_ads_fresh
+    table: staging.stg_meta_ads__campaign_daily
+    type: freshness
+    column: date
+    max_lag_days: 2
+
+  # ---- reporting ------------------------------------------------------------
+  - name: rpt_paid_media_grain_unique
+    table: reporting.rpt_paid_media_campaign_daily
+    type: unique
+    columns: [date, platform, campaign_id]
+  - name: rpt_paid_media_platform_known
+    table: reporting.rpt_paid_media_campaign_daily
+    type: accepted_values
+    column: platform
+    values: [google_ads, meta_ads]
+  - name: rpt_channel_grain_unique
+    table: reporting.rpt_channel_performance_daily
+    type: unique
+    columns: [date, channel_group]
+  - name: rpt_monthly_grain_unique
+    table: reporting.rpt_platform_summary_monthly
+    type: unique
+    columns: [month_start, platform]
+
+  # Reconciliation: the reporting layer must neither lose nor duplicate spend.
+  - name: rpt_paid_media_spend_reconciles_to_staging
+    table: reporting.rpt_paid_media_campaign_daily
+    type: sql
+    sql: |
+      select case when abs(
+          (select sum(spend) from {{ reporting.rpt_paid_media_campaign_daily }})
+          - (select sum(spend) from {{ staging.stg_google_ads__campaign_daily }})
+          - (select sum(spend) from {{ staging.stg_meta_ads__campaign_daily }})
+      ) < 0.01 then 0 else 1 end as failed_rows
+
+  # Reconciliation: channel report sessions must equal staged GA4 sessions.
+  - name: rpt_channel_sessions_reconcile_to_staging
+    table: reporting.rpt_channel_performance_daily
+    type: sql
+    sql: |
+      select case when
+          (select sum(sessions) from {{ reporting.rpt_channel_performance_daily }})
+          = (select sum(sessions) from {{ staging.stg_ga4__sessions }})
+      then 0 else 1 end as failed_rows
+
+  # GA4 cannot attribute more sessions to a campaign than the platform had clicks
+  # (20% tolerance for multi-session clicks). Signals a fan-out in the join.
+  - name: rpt_paid_media_sessions_plausible
+    table: reporting.rpt_paid_media_campaign_daily
+    type: expression
+    expression: ga4_sessions <= clicks * 1.2 + 5
+    severity: warn
+
+  # Tracking coverage: flag platforms where too many sessions lack a campaign.
+  - name: rpt_monthly_utm_coverage
+    table: reporting.rpt_platform_summary_monthly
+    type: expression
+    expression: utm_coverage_rate >= 0.9
+    severity: warn
